@@ -15,19 +15,34 @@ export default function SearchForm() {
             toast({
                 title: "Validation Error",
                 description: "Please provide at least one search parameter.",
-                variant: "destructive" // Note: I didn't implement variants in toast.tsx fully but it's fine
+                variant: "destructive"
             })
             return
         }
 
         setLoading(true)
         try {
-            const { data, error } = await supabase.functions.invoke('scrape', {
-                body: { company_name: companyName, location, businessType }
+            // Get the current session token
+            const { data: { session } } = await supabase.auth.getSession()
+
+            const response = await fetch('/api/scrape', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(session?.access_token && { 'Authorization': `Bearer ${session.access_token}` })
+                },
+                body: JSON.stringify({
+                    company_name: companyName,
+                    location,
+                    business_type: businessType
+                })
             })
 
-            if (error) throw error
-            if (!data.success) throw new Error(data.error || 'Unknown error')
+            const data = await response.json()
+
+            if (!response.ok || !data.success) {
+                throw new Error(data.error || 'Unknown error')
+            }
 
             toast({
                 title: "Search Started",
