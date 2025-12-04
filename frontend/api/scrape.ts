@@ -62,13 +62,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       throw new Error(`Failed to create job: ${jobError.message}`);
     }
 
-    // Start background processing
-    processJobAsync(job.id, company_name, location, business_type, userId);
+    // Start background processing - AWAIT to ensure it runs on Vercel
+    await processJobAsync(job.id, company_name, location, business_type, userId);
 
     return res.status(200).json({
       success: true,
       job_id: job.id,
-      status: 'queued'
+      status: 'completed' // Since we await, it's completed
     });
 
   } catch (error: any) {
@@ -109,7 +109,7 @@ async function processJobAsync(
     serpUrl.searchParams.append('engine', 'google');
     serpUrl.searchParams.append('q', query);
     serpUrl.searchParams.append('api_key', serpApiKey);
-    serpUrl.searchParams.append('num', '5');
+    serpUrl.searchParams.append('num', '3'); // Reduced to 3 to avoid timeout
 
     const serpRes = await fetch(serpUrl.toString());
     const serpData = await serpRes.json();
