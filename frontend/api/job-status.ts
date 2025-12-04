@@ -38,7 +38,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const { data: job, error } = await supabase
       .from('jobs')
-      .select('*, result:companies(*)')
+      .select('*, leads(*)')
       .eq('id', id)
       .single();
 

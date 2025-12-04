@@ -95,11 +95,16 @@ async function processJobAsync(
   try {
     await supabase.from('jobs').update({ status: 'processing' }).eq('id', jobId);
 
-    // Build search query
-    let query = `site:linkedin.com/company`;
-    if (companyName) query += ` ${companyName}`;
-    if (businessType) query += ` ${businessType}`;
-    if (location) query += ` in ${location}`;
+    // Build search query for PEOPLE
+    // e.g. site:linkedin.com/in "OpenAI" (CEO OR CFO OR Manager)
+    let query = `site:linkedin.com/in`;
+    if (companyName) query += ` "${companyName}"`;
+    
+    // Add target roles (use provided business_type or default)
+    const roles = businessType || "CEO OR CFO OR Founder OR Owner OR \"Business Development\" OR Manager OR Director";
+    query += ` (${roles})`;
+    
+    if (location) query += ` ${location}`;
 
     const serpApiKey = process.env.SERPAPI_KEY;
     if (!serpApiKey) throw new Error('SERPAPI_KEY is not configured');
@@ -109,7 +114,7 @@ async function processJobAsync(
     serpUrl.searchParams.append('engine', 'google');
     serpUrl.searchParams.append('q', query);
     serpUrl.searchParams.append('api_key', serpApiKey);
-    serpUrl.searchParams.append('num', '3'); // Reduced to 3 to avoid timeout
+    serpUrl.searchParams.append('num', '5'); // Fetch 5 results
 
     const serpRes = await fetch(serpUrl.toString());
     const serpData = await serpRes.json();
@@ -117,11 +122,11 @@ async function processJobAsync(
     if (serpData.error) throw new Error(`SerpAPI Error: ${serpData.error}`);
 
     const organicResults = serpData.organic_results || [];
-    const companies = [];
+    const leads = [];
 
     for (const result of organicResults) {
       const link = result.link;
-      if (link && link.includes('linkedin.com/company/')) {
+      if (link && link.includes('linkedin.com/in/')) {
         try {
           const pageRes = await fetch(link, {
             headers: {
@@ -131,41 +136,42 @@ async function processJobAsync(
           const html = await pageRes.text();
           const $ = cheerio.load(html);
 
-          const title = $('title').text().replace('| LinkedIn', '').trim() || result.title;
-          const description = $('meta[name="description"]').attr('content') || result.snippet;
+          // Extract Name and Role from Title
+          // Format usually: "Name - Role - Company | LinkedIn"
+          const pageTitle = $('title').text().replace('| LinkedIn', '').trim();
+          const parts = pageTitle.split(' - ');
+          
+          let fullName = parts[0] || result.title.split(' - ')[0] || 'Unknown';
+          let jobTitle = parts[1] || 'Unknown';
+          let currentCompany = parts[2] || companyName || 'Unknown';
 
-          let industry = 'Not found';
-          let employeeCount = 'Not found';
-          let headquarters = 'Not found';
-          let website = 'Not found';
+          // If title parsing fails, try snippet or fallback
+          if (fullName.includes('LinkedIn')) fullName = result.title.split(' - ')[0];
 
-          const industryMatch = html.match(/"industry":"([^"]+)"/);
-          if (industryMatch) industry = industryMatch[1];
-
-          const employeeMatch = html.match(/([\d,]+(?:-[\d,]+)?)\s*employees/);
-          if (employeeMatch) employeeCount = employeeMatch[1];
-
+          // Extract Location
           const locationMatch = html.match(/"addressLocality":"([^"]+)"/);
-          if (locationMatch) headquarters = locationMatch[1];
+          let leadLocation = locationMatch ? locationMatch[1] : location;
 
-          const websiteMatch = html.match(/"url":"(https?:\/\/(?!www\.linkedin)[^"]+)"/);
-          if (websiteMatch) website = websiteMatch[1];
+          // Split name
+          const nameParts = fullName.split(' ');
+          const firstName = nameParts[0];
+          const lastName = nameParts.slice(1).join(' ');
 
-          const company = {
-            company_name: title,
+          const lead = {
+            job_id: jobId,
+            company_name: currentCompany,
+            full_name: fullName,
+            first_name: firstName,
+            last_name: lastName,
+            job_title: jobTitle,
             linkedin_url: link,
-            linkedin_id: link.split('/company/')[1]?.split('/')[0] || 'unknown',
-            industry,
-            employee_count: employeeCount,
-            headquarters,
-            website,
-            description: description?.substring(0, 300),
-            search_query: query,
-            user_id: userId
+            location: leadLocation,
+            email: null, // Placeholder for enrichment
+            phone: null  // Placeholder for enrichment
           };
 
-          const { data } = await supabase.from('companies').insert(company).select().single();
-          if (data) companies.push(data);
+          const { data } = await supabase.from('leads').insert(lead).select().single();
+          if (data) leads.push(data);
 
         } catch (e) {
           console.error(`Failed to scrape ${link}:`, e);
@@ -176,7 +182,9 @@ async function processJobAsync(
     // Update job status
     await supabase.from('jobs').update({
       status: 'completed',
-      result_id: companies[0]?.id
+      // We don't need result_id anymore as we link via job_id in leads table
+      // But we can store the first lead id if needed for backward compatibility
+      result_id: leads[0]?.id 
     }).eq('id', jobId);
 
   } catch (error: any) {

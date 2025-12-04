@@ -88,6 +88,50 @@ export interface Database {
           updated_at?: string | null
         }
       }
+      leads: {
+        Row: {
+          id: string
+          job_id: string | null
+          company_name: string | null
+          full_name: string | null
+          first_name: string | null
+          last_name: string | null
+          job_title: string | null
+          linkedin_url: string | null
+          email: string | null
+          phone: string | null
+          location: string | null
+          created_at: string | null
+        }
+        Insert: {
+          id?: string
+          job_id?: string | null
+          company_name?: string | null
+          full_name?: string | null
+          first_name?: string | null
+          last_name?: string | null
+          job_title?: string | null
+          linkedin_url?: string | null
+          email?: string | null
+          phone?: string | null
+          location?: string | null
+          created_at?: string | null
+        }
+        Update: {
+          id?: string
+          job_id?: string | null
+          company_name?: string | null
+          full_name?: string | null
+          first_name?: string | null
+          last_name?: string | null
+          job_title?: string | null
+          linkedin_url?: string | null
+          email?: string | null
+          phone?: string | null
+          location?: string | null
+          created_at?: string | null
+        }
+      }
       scrape_logs: {
         Row: {
           id: string
