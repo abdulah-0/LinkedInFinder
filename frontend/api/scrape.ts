@@ -220,7 +220,6 @@ async function processJobAsync(
               personal_emails: [],
               phones: []
             }
-            }
           };
         }
 
