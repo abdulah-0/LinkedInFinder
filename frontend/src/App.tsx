@@ -4,11 +4,12 @@ import type { Session } from '@supabase/supabase-js'
 import Auth from '@/components/Auth'
 import SearchForm from '@/components/SearchForm'
 import ResultsTable from '@/components/ResultsTable'
-import JobList from '@/components/JobList'
+import SearchHistory from '@/components/SearchHistory'
 import { Toaster } from '@/components/ui/toaster'
 
 function App() {
   const [session, setSession] = useState<Session | null>(null)
+  const [selectedJobId, setSelectedJobId] = useState<string | null>(null)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -43,13 +44,16 @@ function App() {
       </header>
       <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
         <div className="px-4 py-6 sm:px-0 space-y-8">
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
             <div className="lg:col-span-1 space-y-8">
               <SearchForm />
-              <JobList />
+              <SearchHistory
+                onSelectJob={setSelectedJobId}
+                selectedJobId={selectedJobId}
+              />
             </div>
-            <div className="lg:col-span-2">
-              <ResultsTable />
+            <div className="lg:col-span-3">
+              <ResultsTable selectedJobId={selectedJobId} />
             </div>
           </div>
         </div>

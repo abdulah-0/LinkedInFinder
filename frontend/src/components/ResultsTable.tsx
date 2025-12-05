@@ -5,7 +5,11 @@ import { Download, User, Briefcase, MapPin, Building2 } from 'lucide-react'
 
 type Lead = Database['public']['Tables']['leads']['Row']
 
-export default function ResultsTable() {
+interface ResultsTableProps {
+    selectedJobId: string | null
+}
+
+export default function ResultsTable({ selectedJobId }: ResultsTableProps) {
     const [leads, setLeads] = useState<Lead[]>([])
     const [loading, setLoading] = useState(false)
 
@@ -22,16 +26,23 @@ export default function ResultsTable() {
         return () => {
             subscription.unsubscribe()
         }
-    }, [])
+    }, [selectedJobId]) // Re-fetch when selectedJobId changes
 
     const fetchLeads = async () => {
         setLoading(true)
         try {
-            const { data, error } = await supabase
+            let query = supabase
                 .from('leads')
                 .select('*')
                 .order('created_at', { ascending: false })
                 .limit(50)
+
+            // Filter by job_id if a specific job is selected
+            if (selectedJobId) {
+                query = query.eq('job_id', selectedJobId)
+            }
+
+            const { data, error } = await query
 
             if (error) {
                 console.error('Error fetching leads:', error)
