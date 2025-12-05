@@ -26,13 +26,22 @@ export default function ResultsTable() {
 
     const fetchLeads = async () => {
         setLoading(true)
-        const { data } = await supabase
-            .from('leads')
-            .select('*')
-            .order('created_at', { ascending: false })
-            .limit(50)
+        try {
+            const { data, error } = await supabase
+                .from('leads')
+                .select('*')
+                .order('created_at', { ascending: false })
+                .limit(50)
 
-        if (data) setLeads(data)
+            if (error) {
+                console.error('Error fetching leads:', error)
+            } else {
+                console.log('Fetched leads:', data?.length || 0)
+                if (data) setLeads(data)
+            }
+        } catch (err) {
+            console.error('Exception fetching leads:', err)
+        }
         setLoading(false)
     }
 
@@ -67,15 +76,23 @@ export default function ResultsTable() {
     return (
         <div className="bg-white dark:bg-gray-800 shadow rounded-lg overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
-                <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Leads Found</h2>
-                <button
-                    onClick={downloadCSV}
-                    disabled={leads.length === 0}
-                    className="flex items-center space-x-2 bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded text-sm disabled:opacity-50"
-                >
-                    <Download className="h-4 w-4" />
-                    <span>Export CSV</span>
-                </button>
+                <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Leads Found ({leads.length})</h2>
+                <div className="flex gap-2">
+                    <button
+                        onClick={fetchLeads}
+                        className="flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded text-sm"
+                    >
+                        <span>Refresh</span>
+                    </button>
+                    <button
+                        onClick={downloadCSV}
+                        disabled={leads.length === 0}
+                        className="flex items-center space-x-2 bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded text-sm disabled:opacity-50"
+                    >
+                        <Download className="h-4 w-4" />
+                        <span>Export CSV</span>
+                    </button>
+                </div>
             </div>
             <div className="overflow-x-auto">
                 <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
