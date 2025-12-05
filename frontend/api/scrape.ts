@@ -144,19 +144,12 @@ async function processJobAsync(
 
     const leads = [];
 
-    for (const linkedinUrl of linkedinUrls) {
+    for (let i = 0; i < linkedinUrls.length; i++) {
+      const linkedinUrl = linkedinUrls[i];
+      const serpResult = organicResults[i]; // Get corresponding SerpAPI result
+      
       try {
-        let profileData: any = {
-          full_name: 'Unknown',
-          title: 'Unknown',
-          location: location || null,
-          contact_info: {
-            emails: [],
-            work_emails: [],
-            personal_emails: [],
-            phones: []
-          }
-        };
+        let profileData: any = null;
 
         // Try to enrich with ContactOut if API key is available
         if (contactOutKey) {
@@ -176,13 +169,59 @@ async function processJobAsync(
 
             if (contactOutData.status_code === 200 && contactOutData.profile) {
               profileData = contactOutData.profile;
-              console.log(`Enriched profile: ${profileData.full_name}`);
+              console.log(`✓ ContactOut enriched: ${profileData.full_name}`);
             } else {
-              console.log(`ContactOut enrichment failed for ${linkedinUrl}:`, contactOutData.message);
+              console.log(`✗ ContactOut failed for ${linkedinUrl}:`, contactOutData.message || contactOutData.error);
             }
           } catch (enrichError) {
-            console.error(`ContactOut enrichment error for ${linkedinUrl}:`, enrichError);
+            console.error(`✗ ContactOut error for ${linkedinUrl}:`, enrichError);
           }
+        }
+
+        // Fallback: Parse from SerpAPI result if ContactOut failed
+        if (!profileData) {
+          console.log(`→ Using fallback scraping for ${linkedinUrl}`);
+          
+          // Extract from SerpAPI title/snippet
+          // Format: "Name - Job Title at Company | LinkedIn"
+          const title = serpResult.title || '';
+          const snippet = serpResult.snippet || '';
+          
+          let fullName = 'Unknown';
+          let jobTitle = 'Unknown';
+          let currentCompany = companyName || 'Unknown';
+
+          // Try to parse from title
+          if (title) {
+            const titleParts = title.replace('| LinkedIn', '').split(' - ');
+            if (titleParts.length >= 2) {
+              fullName = titleParts[0].trim();
+              const roleCompany = titleParts[1].trim();
+              
+              // Try to split "Job Title at Company"
+              if (roleCompany.includes(' at ')) {
+                const [role, company] = roleCompany.split(' at ');
+                jobTitle = role.trim();
+                currentCompany = company.trim();
+              } else {
+                jobTitle = roleCompany;
+              }
+            }
+          }
+
+          profileData = {
+            full_name: fullName,
+            title: jobTitle,
+            company: { name: currentCompany },
+            location: location || null,
+            contact_info: {
+              emails: [],
+              work_emails: [],
+              personal_emails: [],
+              phones: []
+            }
+            }
+          };
         }
 
         // Extract contact info
