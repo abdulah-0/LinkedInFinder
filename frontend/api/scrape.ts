@@ -143,12 +143,14 @@ async function processJobAsync(
     const contactOutData = await contactOutRes.json();
 
     console.log('ContactOut response status:', contactOutData.status_code);
+    console.log('ContactOut full response:', JSON.stringify(contactOutData, null, 2));
 
     if (contactOutData.status_code !== 200) {
-      throw new Error(`ContactOut API Error: ${contactOutData.message || 'Unknown error'}`);
+      throw new Error(`ContactOut API Error: ${contactOutData.message || JSON.stringify(contactOutData)}`)
     }
 
     const profiles = contactOutData.profiles || {};
+    console.log('Number of profiles returned:', Object.keys(profiles).length);
     const leads = [];
 
     // Parse ContactOut response and store leads
