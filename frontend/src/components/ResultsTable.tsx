@@ -116,36 +116,36 @@ export default function ResultsTable() {
                             <tr><td colSpan={5} className="px-6 py-4 text-center text-sm text-gray-500">No leads found yet.</td></tr>
                         )}
                         {leads.map((lead) => (
-                            <tr key={lead.id}>
+                            <tr key={lead.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
                                 <td className="px-6 py-4 whitespace-nowrap">
                                     <div className="flex items-center">
                                         <div className="flex-shrink-0 h-8 w-8 bg-blue-100 rounded-full flex items-center justify-center text-blue-600">
                                             <User size={16} />
                                         </div>
                                         <div className="ml-3">
-                                            <div className="text-sm font-medium text-gray-900 dark:text-white">{lead.full_name}</div>
+                                            <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{lead.full_name}</div>
                                         </div>
                                     </div>
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap">
-                                    <div className="flex items-center text-sm text-gray-500 dark:text-gray-400">
+                                    <div className="flex items-center text-sm text-gray-700 dark:text-gray-300">
                                         <Briefcase className="mr-1.5 h-4 w-4 text-gray-400" />
                                         {lead.job_title}
                                     </div>
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap">
-                                    <div className="flex items-center text-sm text-gray-500 dark:text-gray-400">
+                                    <div className="flex items-center text-sm text-gray-700 dark:text-gray-300">
                                         <Building2 className="mr-1.5 h-4 w-4 text-gray-400" />
                                         {lead.company_name}
                                     </div>
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap">
-                                    <div className="flex items-center text-sm text-gray-500 dark:text-gray-400">
+                                    <div className="flex items-center text-sm text-gray-700 dark:text-gray-300">
                                         <MapPin className="mr-1.5 h-4 w-4 text-gray-400" />
                                         {lead.location || 'Unknown'}
                                     </div>
                                 </td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-blue-500 hover:underline">
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-blue-600 dark:text-blue-400 hover:underline">
                                     {lead.linkedin_url && (
                                         <a href={lead.linkedin_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center">
                                             View Profile
