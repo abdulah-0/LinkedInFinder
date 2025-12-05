@@ -95,81 +95,106 @@ async function processJobAsync(
   try {
     await supabase.from('jobs').update({ status: 'processing' }).eq('id', jobId);
 
-    // Use ContactOut People Search API directly
+    // Step 1: Use SerpAPI to find LinkedIn profile URLs
+    const serpApiKey = process.env.SERPAPI_KEY;
+    if (!serpApiKey) throw new Error('SERPAPI_KEY is not configured');
+
+    // Build search query for people
+    let query = `site:linkedin.com/in`;
+    if (companyName) query += ` "${companyName}"`;
+    
+    // Add target roles
+    const roles = businessType || "CEO OR CFO OR Founder OR Owner OR \"Business Development\" OR Manager OR Director";
+    query += ` (${roles})`;
+    
+    if (location) query += ` ${location}`;
+
+    console.log('SerpAPI search query:', query);
+
+    const serpUrl = new URL('https://serpapi.com/search');
+    serpUrl.searchParams.append('engine', 'google');
+    serpUrl.searchParams.append('q', query);
+    serpUrl.searchParams.append('api_key', serpApiKey);
+    serpUrl.searchParams.append('num', '10'); // Get up to 10 results
+
+    const serpRes = await fetch(serpUrl.toString());
+    const serpData = await serpRes.json();
+
+    if (serpData.error) throw new Error(`SerpAPI Error: ${serpData.error}`);
+
+    const organicResults = serpData.organic_results || [];
+    console.log(`SerpAPI found ${organicResults.length} results`);
+
+    if (organicResults.length === 0) {
+      throw new Error('No LinkedIn profiles found for this search');
+    }
+
+    // Step 2: Extract LinkedIn profile URLs
+    const linkedinUrls = organicResults
+      .map((result: any) => result.link)
+      .filter((link: string) => link && link.includes('linkedin.com/in/'));
+
+    console.log(`Extracted ${linkedinUrls.length} LinkedIn URLs`);
+
+    // Step 3: Use ContactOut to enrich each profile
     const contactOutKey = process.env.CONTACTOUT_API_KEY;
-    if (!contactOutKey) throw new Error('CONTACTOUT_API_KEY is not configured');
-
-    // Build search payload
-    const searchPayload: any = {
-      page: 1,
-      reveal_info: true,
-      data_types: ['personal_email', 'work_email', 'phone']
-    };
-
-    // Add company filter
-    if (companyName) {
-      searchPayload.company = [companyName];
-      searchPayload.company_filter = 'current'; // Only current employees
+    if (!contactOutKey) {
+      console.warn('CONTACTOUT_API_KEY not configured, will save profiles without contact info');
     }
 
-    // Add job title filter (use businessType as roles if provided)
-    if (businessType) {
-      // User provided custom roles
-      const roles = businessType.split(',').map((r: string) => r.trim());
-      searchPayload.job_title = roles;
-    } else {
-      // Default to decision makers
-      searchPayload.job_title = ['CEO', 'CFO', 'CTO', 'Founder', 'Owner', 'President', 'VP', 'Director', 'Manager'];
-    }
-
-    // Add location filter
-    if (location) {
-      searchPayload.location = [location];
-    }
-
-    console.log('ContactOut search payload:', JSON.stringify(searchPayload));
-
-    // Call ContactOut People Search API
-    const contactOutRes = await fetch('https://api.contactout.com/v1/people/search', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        'token': contactOutKey
-      },
-      body: JSON.stringify(searchPayload)
-    });
-
-    const contactOutData = await contactOutRes.json();
-
-    console.log('ContactOut response status:', contactOutData.status_code);
-    console.log('ContactOut full response:', JSON.stringify(contactOutData, null, 2));
-
-    if (contactOutData.status_code !== 200) {
-      throw new Error(`ContactOut API Error: ${contactOutData.message || JSON.stringify(contactOutData)}`)
-    }
-
-    const profiles = contactOutData.profiles || {};
-    console.log('Number of profiles returned:', Object.keys(profiles).length);
     const leads = [];
 
-    // Parse ContactOut response and store leads
-    for (const [linkedinUrl, profile] of Object.entries(profiles)) {
+    for (const linkedinUrl of linkedinUrls) {
       try {
-        const profileData = profile as any;
+        let profileData: any = {
+          full_name: 'Unknown',
+          title: 'Unknown',
+          location: location || null,
+          contact_info: {
+            emails: [],
+            work_emails: [],
+            personal_emails: [],
+            phones: []
+          }
+        };
 
-        // Extract emails
+        // Try to enrich with ContactOut if API key is available
+        if (contactOutKey) {
+          try {
+            const contactOutUrl = new URL('https://api.contactout.com/v1/linkedin/enrich');
+            contactOutUrl.searchParams.append('profile', linkedinUrl);
+
+            const contactOutRes = await fetch(contactOutUrl.toString(), {
+              headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'token': contactOutKey
+              }
+            });
+
+            const contactOutData = await contactOutRes.json();
+
+            if (contactOutData.status_code === 200 && contactOutData.profile) {
+              profileData = contactOutData.profile;
+              console.log(`Enriched profile: ${profileData.full_name}`);
+            } else {
+              console.log(`ContactOut enrichment failed for ${linkedinUrl}:`, contactOutData.message);
+            }
+          } catch (enrichError) {
+            console.error(`ContactOut enrichment error for ${linkedinUrl}:`, enrichError);
+          }
+        }
+
+        // Extract contact info
         const workEmails = profileData.contact_info?.work_emails || [];
         const personalEmails = profileData.contact_info?.personal_emails || [];
         const allEmails = profileData.contact_info?.emails || [];
-        
         const primaryEmail = workEmails[0] || personalEmails[0] || allEmails[0] || null;
 
-        // Extract phones
         const phones = profileData.contact_info?.phones || [];
         const primaryPhone = phones[0] || null;
 
-        // Split name
+        // Parse name
         const fullName = profileData.full_name || 'Unknown';
         const nameParts = fullName.split(' ');
         const firstName = nameParts[0];
@@ -196,7 +221,7 @@ async function processJobAsync(
       }
     }
 
-    console.log(`Processed ${leads.length} leads`);
+    console.log(`Successfully processed ${leads.length} leads`);
 
     // Update job status
     await supabase.from('jobs').update({
