@@ -95,53 +95,54 @@ async function processJobAsync(
   try {
     await supabase.from('jobs').update({ status: 'processing' }).eq('id', jobId);
 
-    // Step 1: Find company LinkedIn URL using SerpAPI
-    let companyLinkedInUrl = '';
-    
-    if (companyName) {
-      const serpApiKey = process.env.SERPAPI_KEY;
-      if (!serpApiKey) throw new Error('SERPAPI_KEY is not configured');
-
-      // Search for company page
-      const companyQuery = `site:linkedin.com/company "${companyName}"`;
-      const serpUrl = new URL('https://serpapi.com/search');
-      serpUrl.searchParams.append('engine', 'google');
-      serpUrl.searchParams.append('q', companyQuery);
-      serpUrl.searchParams.append('api_key', serpApiKey);
-      serpUrl.searchParams.append('num', '1');
-
-      const serpRes = await fetch(serpUrl.toString());
-      const serpData = await serpRes.json();
-
-      if (serpData.error) throw new Error(`SerpAPI Error: ${serpData.error}`);
-
-      const organicResults = serpData.organic_results || [];
-      if (organicResults.length > 0 && organicResults[0].link) {
-        companyLinkedInUrl = organicResults[0].link;
-      }
-    }
-
-    if (!companyLinkedInUrl) {
-      throw new Error('Could not find company LinkedIn URL');
-    }
-
-    // Step 2: Call ContactOut Decision Makers API
+    // Use ContactOut People Search API directly
     const contactOutKey = process.env.CONTACTOUT_API_KEY;
     if (!contactOutKey) throw new Error('CONTACTOUT_API_KEY is not configured');
 
-    const contactOutUrl = new URL('https://api.contactout.com/v1/people/decision-makers');
-    contactOutUrl.searchParams.append('reveal_info', 'true');
-    contactOutUrl.searchParams.append('linkedin_url', companyLinkedInUrl);
+    // Build search payload
+    const searchPayload: any = {
+      page: 1,
+      reveal_info: true,
+      data_types: ['personal_email', 'work_email', 'phone']
+    };
 
-    const contactOutRes = await fetch(contactOutUrl.toString(), {
+    // Add company filter
+    if (companyName) {
+      searchPayload.company = [companyName];
+      searchPayload.company_filter = 'current'; // Only current employees
+    }
+
+    // Add job title filter (use businessType as roles if provided)
+    if (businessType) {
+      // User provided custom roles
+      const roles = businessType.split(',').map((r: string) => r.trim());
+      searchPayload.job_title = roles;
+    } else {
+      // Default to decision makers
+      searchPayload.job_title = ['CEO', 'CFO', 'CTO', 'Founder', 'Owner', 'President', 'VP', 'Director', 'Manager'];
+    }
+
+    // Add location filter
+    if (location) {
+      searchPayload.location = [location];
+    }
+
+    console.log('ContactOut search payload:', JSON.stringify(searchPayload));
+
+    // Call ContactOut People Search API
+    const contactOutRes = await fetch('https://api.contactout.com/v1/people/search', {
+      method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
         'token': contactOutKey
-      }
+      },
+      body: JSON.stringify(searchPayload)
     });
 
     const contactOutData = await contactOutRes.json();
+
+    console.log('ContactOut response status:', contactOutData.status_code);
 
     if (contactOutData.status_code !== 200) {
       throw new Error(`ContactOut API Error: ${contactOutData.message || 'Unknown error'}`);
@@ -150,7 +151,7 @@ async function processJobAsync(
     const profiles = contactOutData.profiles || {};
     const leads = [];
 
-    // Step 3: Parse ContactOut response and store leads
+    // Parse ContactOut response and store leads
     for (const [linkedinUrl, profile] of Object.entries(profiles)) {
       try {
         const profileData = profile as any;
@@ -192,6 +193,8 @@ async function processJobAsync(
         console.error(`Failed to process profile ${linkedinUrl}:`, e);
       }
     }
+
+    console.log(`Processed ${leads.length} leads`);
 
     // Update job status
     await supabase.from('jobs').update({
