@@ -37,14 +37,16 @@ export default function ResultsTable() {
     }
 
     const downloadCSV = () => {
-        const headers = ['Full Name', 'Job Title', 'Company', 'Location', 'LinkedIn URL']
+        const headers = ['Full Name', 'Job Title', 'Company', 'Location', 'Email', 'Phone', 'LinkedIn URL']
         const csvContent = [
             headers.join(','),
             ...leads.map(l => [
                 `"${l.full_name}"`,
                 `"${l.job_title}"`,
                 `"${l.company_name}"`,
-                `"${l.location}"`,
+                `"${l.location || ''}"`,
+                `"${l.email || ''}"`,
+                `"${l.phone || ''}"`,
                 `"${l.linkedin_url}"`
             ].join(','))
         ].join('\n')
