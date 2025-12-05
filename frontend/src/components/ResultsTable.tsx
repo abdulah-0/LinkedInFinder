@@ -37,7 +37,10 @@ export default function ResultsTable() {
                 console.error('Error fetching leads:', error)
             } else {
                 console.log('Fetched leads:', data?.length || 0)
-                if (data) setLeads(data)
+                if (data) {
+                    setLeads(data)
+                    console.log('Leads state updated, first lead:', data[0])
+                }
             }
         } catch (err) {
             console.error('Exception fetching leads:', err)
