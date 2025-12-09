@@ -95,27 +95,28 @@ async function processJobAsync(
   try {
     await supabase.from('jobs').update({ status: 'processing' }).eq('id', jobId);
 
-    // Step 1: Use SerpAPI to find LinkedIn profile URLs
+    // Step 1: Use SerpAPI to find LinkedIn profiles
     const serpApiKey = process.env.SERPAPI_KEY;
     if (!serpApiKey) throw new Error('SERPAPI_KEY is not configured');
 
-    // Build search query for people
+    // Build search query
     let query = `site:linkedin.com/in`;
     if (companyName) query += ` "${companyName}"`;
     
     // Add target roles
-    const roles = businessType || "CEO OR CFO OR Founder OR Owner OR \"Business Development\" OR Manager OR Director";
+    const roles = businessType || "CEO OR CFO OR Founder OR Owner OR Manager OR Director";
     query += ` (${roles})`;
     
     if (location) query += ` ${location}`;
 
-    console.log('SerpAPI search query:', query);
+    console.log('🔍 SerpAPI search query:', query);
 
+    // Call SerpAPI
     const serpUrl = new URL('https://serpapi.com/search');
     serpUrl.searchParams.append('engine', 'google');
     serpUrl.searchParams.append('q', query);
     serpUrl.searchParams.append('api_key', serpApiKey);
-    serpUrl.searchParams.append('num', '10'); // Get up to 10 results
+    serpUrl.searchParams.append('num', '10');
 
     const serpRes = await fetch(serpUrl.toString());
     const serpData = await serpRes.json();
@@ -123,37 +124,39 @@ async function processJobAsync(
     if (serpData.error) throw new Error(`SerpAPI Error: ${serpData.error}`);
 
     const organicResults = serpData.organic_results || [];
-    console.log(`SerpAPI found ${organicResults.length} results`);
+    console.log(`✓ SerpAPI found ${organicResults.length} results`);
 
     if (organicResults.length === 0) {
-      throw new Error('No LinkedIn profiles found for this search');
+      throw new Error('No LinkedIn profiles found');
     }
 
-    // Step 2: Extract LinkedIn profile URLs
+    // Step 2: Extract LinkedIn URLs
     const linkedinUrls = organicResults
       .map((result: any) => result.link)
       .filter((link: string) => link && link.includes('linkedin.com/in/'));
 
-    console.log(`Extracted ${linkedinUrls.length} LinkedIn URLs`);
+    console.log(`📋 Extracted ${linkedinUrls.length} LinkedIn URLs`);
 
-    // Step 3: Use ContactOut to enrich each profile
+    // Step 3: Enrich each profile with ContactOut
     const contactOutKey = process.env.CONTACTOUT_API_KEY;
     if (!contactOutKey) {
-      console.warn('CONTACTOUT_API_KEY not configured, will save profiles without contact info');
+      console.warn('⚠️  CONTACTOUT_API_KEY not configured');
     }
 
     const leads = [];
 
     for (let i = 0; i < linkedinUrls.length; i++) {
       const linkedinUrl = linkedinUrls[i];
-      const serpResult = organicResults[i]; // Get corresponding SerpAPI result
+      const serpResult = organicResults[i];
       
       try {
         let profileData: any = null;
 
-        // Try to enrich with ContactOut if API key is available
+        // Try ContactOut enrichment
         if (contactOutKey) {
           try {
+            console.log(`🔄 Enriching: ${linkedinUrl}`);
+            
             const contactOutUrl = new URL('https://api.contactout.com/v1/linkedin/enrich');
             contactOutUrl.searchParams.append('profile', linkedinUrl);
 
@@ -169,36 +172,30 @@ async function processJobAsync(
 
             if (contactOutData.status_code === 200 && contactOutData.profile) {
               profileData = contactOutData.profile;
-              console.log(`✓ ContactOut enriched: ${profileData.full_name}`);
+              console.log(`✅ Enriched: ${profileData.full_name}`);
             } else {
-              console.log(`✗ ContactOut failed for ${linkedinUrl}:`, contactOutData.message || contactOutData.error);
+              console.log(`❌ ContactOut failed:`, contactOutData.message || contactOutData.error);
             }
           } catch (enrichError) {
-            console.error(`✗ ContactOut error for ${linkedinUrl}:`, enrichError);
+            console.error(`❌ ContactOut error:`, enrichError);
           }
         }
 
-        // Fallback: Parse from SerpAPI result if ContactOut failed
+        // Fallback: Parse from SerpAPI result
         if (!profileData) {
-          console.log(`→ Using fallback scraping for ${linkedinUrl}`);
+          console.log(`📝 Using fallback for: ${linkedinUrl}`);
           
-          // Extract from SerpAPI title/snippet
-          // Format: "Name - Job Title at Company | LinkedIn"
           const title = serpResult.title || '';
-          const snippet = serpResult.snippet || '';
-          
           let fullName = 'Unknown';
           let jobTitle = 'Unknown';
           let currentCompany = companyName || 'Unknown';
 
-          // Try to parse from title
           if (title) {
             const titleParts = title.replace('| LinkedIn', '').split(' - ');
             if (titleParts.length >= 2) {
               fullName = titleParts[0].trim();
               const roleCompany = titleParts[1].trim();
               
-              // Try to split "Job Title at Company"
               if (roleCompany.includes(' at ')) {
                 const [role, company] = roleCompany.split(' at ');
                 jobTitle = role.trim();
@@ -255,11 +252,11 @@ async function processJobAsync(
         if (data) leads.push(data);
 
       } catch (e) {
-        console.error(`Failed to process profile ${linkedinUrl}:`, e);
+        console.error(`❌ Failed to process ${linkedinUrl}:`, e);
       }
     }
 
-    console.log(`Successfully processed ${leads.length} leads`);
+    console.log(`✅ Successfully processed ${leads.length} leads`);
 
     // Update job status
     await supabase.from('jobs').update({
@@ -268,7 +265,7 @@ async function processJobAsync(
     }).eq('id', jobId);
 
   } catch (error: any) {
-    console.error('Job failed:', error);
+    console.error('❌ Job failed:', error);
     await supabase.from('jobs').update({
       status: 'failed',
       error_message: error.message
