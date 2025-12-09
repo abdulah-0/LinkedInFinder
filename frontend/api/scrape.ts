@@ -170,9 +170,11 @@ async function processJobAsync(
 
             const contactOutData = await contactOutRes.json();
 
+            console.log(`📥 ContactOut response for ${linkedinUrl}:`, JSON.stringify(contactOutData, null, 2));
+
             if (contactOutData.status_code === 200 && contactOutData.profile) {
               profileData = contactOutData.profile;
-              console.log(`✅ Enriched: ${profileData.full_name}`);
+              console.log(`✅ Enriched: ${profileData.full_name} | Email: ${profileData.contact_info?.emails?.[0] || 'none'} | Phone: ${profileData.contact_info?.phones?.[0] || 'none'}`);
             } else {
               console.log(`❌ ContactOut failed:`, contactOutData.message || contactOutData.error);
             }
