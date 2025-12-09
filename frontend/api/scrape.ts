@@ -172,11 +172,19 @@ async function processJobAsync(
 
             console.log(`📥 ContactOut response for ${linkedinUrl}:`, JSON.stringify(contactOutData, null, 2));
 
-            if (contactOutData.status_code === 200 && contactOutData.profile) {
+            // Check if this is a demo/sample response
+            const isDemoResponse = contactOutData.message?.includes('sample response') || 
+                                   contactOutData.profile?.full_name === 'Example Person';
+
+            if (contactOutData.status_code === 200 && contactOutData.profile && !isDemoResponse) {
               profileData = contactOutData.profile;
               console.log(`✅ Enriched: ${profileData.full_name} | Email: ${profileData.contact_info?.emails?.[0] || 'none'} | Phone: ${profileData.contact_info?.phones?.[0] || 'none'}`);
             } else {
-              console.log(`❌ ContactOut failed:`, contactOutData.message || contactOutData.error);
+              if (isDemoResponse) {
+                console.log(`⚠️  ContactOut returned demo data (trial API key) - using SerpAPI fallback`);
+              } else {
+                console.log(`❌ ContactOut failed:`, contactOutData.message || contactOutData.error);
+              }
             }
           } catch (enrichError) {
             console.error(`❌ ContactOut error:`, enrichError);
