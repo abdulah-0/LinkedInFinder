@@ -4,7 +4,6 @@ import type { Database } from '../types/supabase'
 import { Download, Trash2, Eye, Calendar, MapPin, Building2 } from 'lucide-react'
 
 type Job = Database['public']['Tables']['jobs']['Row']
-type Lead = Database['public']['Tables']['leads']['Row']
 
 interface LeadsManagerProps {
     onSelectJob: (jobId: string | null) => void
@@ -108,7 +107,7 @@ export default function LeadsManager({ onSelectJob, selectedJobId }: LeadsManage
             const headers = ['Full Name', 'Job Title', 'Company', 'Location', 'Email', 'Phone', 'LinkedIn URL']
             const csvContent = [
                 headers.join(','),
-                ...leads.map(l => [
+                ...leads.map((l: any) => [
                     `"${l.full_name}"`,
                     `"${l.job_title}"`,
                     `"${l.company_name}"`,
