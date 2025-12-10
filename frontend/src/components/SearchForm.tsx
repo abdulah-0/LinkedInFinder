@@ -3,10 +3,11 @@ import { supabase } from '@/lib/supabase'
 import { useToast } from '@/hooks/use-toast'
 
 export default function SearchForm() {
-    const [loading, setLoading] = useState(false)
     const [companyName, setCompanyName] = useState('')
     const [location, setLocation] = useState('')
     const [businessType, setBusinessType] = useState('')
+    const [enrichmentProvider, setEnrichmentProvider] = useState<'contactout' | 'rocketreach'>('contactout')
+    const [loading, setLoading] = useState(false)
     const { toast } = useToast()
 
     const handleSearch = async (e: React.FormEvent) => {
@@ -34,7 +35,8 @@ export default function SearchForm() {
                 body: JSON.stringify({
                     company_name: companyName,
                     location,
-                    business_type: businessType
+                    business_type: businessType,
+                    enrichment_provider: enrichmentProvider
                 })
             })
 
@@ -97,6 +99,20 @@ export default function SearchForm() {
                         className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                         placeholder="e.g. CEO, CFO, Marketing Manager (Default: Decision Makers)"
                     />
+                </div>
+                <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Enrichment Provider</label>
+                    <select
+                        value={enrichmentProvider}
+                        onChange={(e) => setEnrichmentProvider(e.target.value as 'contactout' | 'rocketreach')}
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                        <option value="contactout">ContactOut</option>
+                        <option value="rocketreach">RocketReach</option>
+                    </select>
+                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                        Choose which API to use for finding emails and phone numbers
+                    </p>
                 </div>
                 <button
                     type="submit"

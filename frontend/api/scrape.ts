@@ -80,6 +80,101 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 }
 
+// Helper function to enrich with ContactOut
+async function enrichWithContactOut(linkedinUrl: string): Promise<any | null> {
+  const contactOutKey = process.env.CONTACTOUT_API_KEY;
+  if (!contactOutKey) {
+    console.warn('⚠️  CONTACTOUT_API_KEY not configured');
+    return null;
+  }
+
+  try {
+    console.log(`🔄 ContactOut enriching: ${linkedinUrl}`);
+    
+    const contactOutUrl = new URL('https://api.contactout.com/v1/linkedin/enrich');
+    contactOutUrl.searchParams.append('profile', linkedinUrl);
+
+    const contactOutRes = await fetch(contactOutUrl.toString(), {
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'token': contactOutKey
+      }
+    });
+
+    const contactOutData = await contactOutRes.json();
+
+    // Check if this is a demo/sample response
+    const isDemoResponse = contactOutData.message?.includes('sample response') || 
+                           contactOutData.profile?.full_name === 'Example Person';
+
+    if (contactOutData.status_code === 200 && contactOutData.profile && !isDemoResponse) {
+      console.log(`✅ ContactOut enriched: ${contactOutData.profile.full_name}`);
+      return contactOutData.profile;
+    } else {
+      if (isDemoResponse) {
+        console.log(`⚠️  ContactOut returned demo data`);
+      } else {
+        console.log(`❌ ContactOut failed:`, contactOutData.message || contactOutData.error);
+      }
+      return null;
+    }
+  } catch (error) {
+    console.error(`❌ ContactOut error:`, error);
+    return null;
+  }
+}
+
+// Helper function to enrich with RocketReach
+async function enrichWithRocketReach(linkedinUrl: string): Promise<any | null> {
+  const rocketReachKey = process.env.ROCKETREACH_API_KEY;
+  if (!rocketReachKey) {
+    console.warn('⚠️  ROCKETREACH_API_KEY not configured');
+    return null;
+  }
+
+  try {
+    console.log(`🚀 RocketReach enriching: ${linkedinUrl}`);
+    
+    const response = await fetch('https://api.rocketreach.co/v2/api/lookupProfile', {
+      method: 'POST',
+      headers: {
+        'Api-Key': rocketReachKey,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        linkedin_url: linkedinUrl
+      })
+    });
+
+    const data = await response.json();
+
+    if (data && data.name) {
+      // Transform RocketReach response to match our format
+      const profileData = {
+        full_name: data.name || 'Unknown',
+        title: data.current_title || 'Unknown',
+        company: { name: data.current_employer || 'Unknown' },
+        location: data.location || null,
+        contact_info: {
+          emails: data.emails || [],
+          work_emails: data.emails?.filter((e: any) => e.type === 'professional') || [],
+          personal_emails: data.emails?.filter((e: any) => e.type === 'personal') || [],
+          phones: data.phones || []
+        }
+      };
+      console.log(`✅ RocketReach enriched: ${profileData.full_name}`);
+      return profileData;
+    } else {
+      console.log(`❌ RocketReach failed:`, data.error || 'No data returned');
+      return null;
+    }
+  } catch (error) {
+    console.error(`❌ RocketReach error:`, error);
+    return null;
+  }
+}
+
 async function processJobAsync(
   jobId: string,
   companyName: string | undefined,
@@ -94,6 +189,12 @@ async function processJobAsync(
 
   try {
     await supabase.from('jobs').update({ status: 'processing' }).eq('id', jobId);
+
+    // Get enrichment provider from job payload
+    const { data: jobData } = await supabase.from('jobs').select('payload').eq('id', jobId).single();
+    const enrichmentProvider = (jobData?.payload as any)?.enrichment_provider || 'contactout';
+
+    console.log(`🔧 Using enrichment provider: ${enrichmentProvider}`);
 
     // Step 1: Use SerpAPI to find LinkedIn profiles
     const serpApiKey = process.env.SERPAPI_KEY;
@@ -137,12 +238,7 @@ async function processJobAsync(
 
     console.log(`📋 Extracted ${linkedinUrls.length} LinkedIn URLs`);
 
-    // Step 3: Enrich each profile with ContactOut
-    const contactOutKey = process.env.CONTACTOUT_API_KEY;
-    if (!contactOutKey) {
-      console.warn('⚠️  CONTACTOUT_API_KEY not configured');
-    }
-
+    // Step 3: Enrich each profile with selected provider
     const leads = [];
 
     for (let i = 0; i < linkedinUrls.length; i++) {
@@ -152,43 +248,11 @@ async function processJobAsync(
       try {
         let profileData: any = null;
 
-        // Try ContactOut enrichment
-        if (contactOutKey) {
-          try {
-            console.log(`🔄 Enriching: ${linkedinUrl}`);
-            
-            const contactOutUrl = new URL('https://api.contactout.com/v1/linkedin/enrich');
-            contactOutUrl.searchParams.append('profile', linkedinUrl);
-
-            const contactOutRes = await fetch(contactOutUrl.toString(), {
-              headers: {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json',
-                'token': contactOutKey
-              }
-            });
-
-            const contactOutData = await contactOutRes.json();
-
-            console.log(`📥 ContactOut response for ${linkedinUrl}:`, JSON.stringify(contactOutData, null, 2));
-
-            // Check if this is a demo/sample response
-            const isDemoResponse = contactOutData.message?.includes('sample response') || 
-                                   contactOutData.profile?.full_name === 'Example Person';
-
-            if (contactOutData.status_code === 200 && contactOutData.profile && !isDemoResponse) {
-              profileData = contactOutData.profile;
-              console.log(`✅ Enriched: ${profileData.full_name} | Email: ${profileData.contact_info?.emails?.[0] || 'none'} | Phone: ${profileData.contact_info?.phones?.[0] || 'none'}`);
-            } else {
-              if (isDemoResponse) {
-                console.log(`⚠️  ContactOut returned demo data (trial API key) - using SerpAPI fallback`);
-              } else {
-                console.log(`❌ ContactOut failed:`, contactOutData.message || contactOutData.error);
-              }
-            }
-          } catch (enrichError) {
-            console.error(`❌ ContactOut error:`, enrichError);
-          }
+        // Try enrichment based on selected provider
+        if (enrichmentProvider === 'rocketreach') {
+          profileData = await enrichWithRocketReach(linkedinUrl);
+        } else {
+          profileData = await enrichWithContactOut(linkedinUrl);
         }
 
         // Fallback: Parse from SerpAPI result

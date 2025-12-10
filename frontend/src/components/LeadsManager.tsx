@@ -190,6 +190,13 @@ export default function LeadsManager({ onSelectJob, selectedJobId }: LeadsManage
                                                 {companyName}
                                             </h3>
                                             {getStatusBadge(job.status)}
+                                            {/* Provider Badge */}
+                                            <span className={`px-2 py-1 text-xs font-medium rounded ${payload?.enrichment_provider === 'rocketreach'
+                                                    ? 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200'
+                                                    : 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200'
+                                                }`}>
+                                                {payload?.enrichment_provider === 'rocketreach' ? '🚀 RocketReach' : '📧 ContactOut'}
+                                            </span>
                                         </div>
 
                                         <div className="flex flex-wrap gap-4 text-sm text-gray-500 dark:text-gray-400 mb-3">
