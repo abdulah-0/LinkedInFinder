@@ -17,15 +17,21 @@ export default function SearchHistory({ onSelectJob, selectedJobId }: SearchHist
     useEffect(() => {
         fetchJobs()
 
-        const subscription = supabase
+        // Subscribe to both jobs table changes AND leads table changes
+        const jobsSubscription = supabase
             .channel('jobs_channel')
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'jobs' }, () => {
+            .on('postgres_changes', {
+                event: '*',
+                schema: 'public',
+                table: 'jobs'
+            }, (payload) => {
+                console.log('Jobs table changed:', payload)
                 fetchJobs()
             })
             .subscribe()
 
         return () => {
-            subscription.unsubscribe()
+            jobsSubscription.unsubscribe()
         }
     }, [])
 
