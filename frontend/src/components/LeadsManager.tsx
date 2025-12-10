@@ -48,7 +48,7 @@ export default function LeadsManager({ onSelectJob, selectedJobId }: LeadsManage
 
                 // Fetch lead counts for each job
                 const counts: Record<string, number> = {}
-                for (const job of jobsData) {
+                for (const job of (jobsData as Job[])) {
                     const { count } = await supabase
                         .from('leads')
                         .select('*', { count: 'exact', head: true })
