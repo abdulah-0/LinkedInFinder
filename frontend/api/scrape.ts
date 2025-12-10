@@ -22,14 +22,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    const { company_name, location, business_type } = req.body;
-
-    if (!company_name && !location && !business_type) {
-      return res.status(400).json({
-        success: false,
-        error: 'Please provide at least one search parameter'
-      });
-    }
+    const { 
+      search_type = 'company',
+      company_name, 
+      location, 
+      business_type,
+      full_name,
+      job_title,
+      enrichment_provider = 'contactout'
+    } = req.body;
 
     // Initialize Supabase client with service role key
     const supabase = createClient(
@@ -47,12 +48,42 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       userId = user?.id;
     }
 
+    // Create job payload based on search type
+    const jobPayload: any = {
+      search_type,
+      enrichment_provider
+    };
+
+    if (search_type === 'name') {
+      if (!full_name) {
+        return res.status(400).json({
+          success: false,
+          error: 'Full name is required for name-based searches'
+        });
+      }
+      jobPayload.full_name = full_name;
+      jobPayload.job_title = job_title;
+      jobPayload.company_name = company_name;
+      jobPayload.location = location;
+    } else {
+      // Company-based search
+      if (!company_name && !location && !business_type) {
+        return res.status(400).json({
+          success: false,
+          error: 'Please provide at least one search parameter'
+        });
+      }
+      jobPayload.company_name = company_name;
+      jobPayload.location = location;
+      jobPayload.business_type = business_type;
+    }
+
     // Create job
     const { data: job, error: jobError } = await supabase
       .from('jobs')
       .insert({
         status: 'queued',
-        payload: { company_name, location, business_type },
+        payload: jobPayload,
         user_id: userId
       })
       .select()
@@ -62,13 +93,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       throw new Error(`Failed to create job: ${jobError.message}`);
     }
 
-    // Start background processing - AWAIT to ensure it runs on Vercel
-    await processJobAsync(job.id, company_name, location, business_type, userId);
+    // Start background processing based on search type
+    if (search_type === 'name') {
+      await processNameSearchAsync(job.id, full_name, job_title, company_name, location, userId);
+    } else {
+      await processJobAsync(job.id, company_name, location, business_type, userId);
+    }
 
     return res.status(200).json({
       success: true,
       job_id: job.id,
-      status: 'completed' // Since we await, it's completed
+      status: 'completed'
     });
 
   } catch (error: any) {
@@ -172,6 +207,161 @@ async function enrichWithRocketReach(linkedinUrl: string): Promise<any | null> {
   } catch (error) {
     console.error(`❌ RocketReach error:`, error);
     return null;
+  }
+}
+
+// Process name-based search
+async function processNameSearchAsync(
+  jobId: string,
+  fullName: string,
+  jobTitle: string | undefined,
+  companyName: string | undefined,
+  location: string | undefined,
+  userId: string | undefined
+) {
+  const supabase = createClient(
+    process.env.VITE_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
+
+  try {
+    await supabase.from('jobs').update({ status: 'processing' }).eq('id', jobId);
+
+    // Get enrichment provider from job payload
+    const { data: jobData } = await supabase.from('jobs').select('payload').eq('id', jobId).single();
+    const enrichmentProvider = (jobData?.payload as any)?.enrichment_provider || 'contactout';
+
+    console.log(`🔧 Using enrichment provider: ${enrichmentProvider}`);
+    console.log(`👤 Searching for: ${fullName}`);
+
+    // Step 1: Use SerpAPI to find LinkedIn profile by name
+    const serpApiKey = process.env.SERPAPI_KEY;
+    if (!serpApiKey) throw new Error('SERPAPI_KEY is not configured');
+
+    // Build search query for name
+    let query = `site:linkedin.com/in "${fullName}"`;
+    if (jobTitle) query += ` "${jobTitle}"`;
+    if (companyName) query += ` "${companyName}"`;
+    if (location) query += ` ${location}`;
+
+    console.log('🔍 SerpAPI search query:', query);
+
+    // Call SerpAPI
+    const serpUrl = new URL('https://serpapi.com/search');
+    serpUrl.searchParams.append('engine', 'google');
+    serpUrl.searchParams.append('q', query);
+    serpUrl.searchParams.append('api_key', serpApiKey);
+    serpUrl.searchParams.append('num', '10');
+
+    const serpRes = await fetch(serpUrl.toString());
+    const serpData = await serpRes.json();
+
+    if (serpData.error) throw new Error(`SerpAPI Error: ${serpData.error}`);
+
+    const organicResults = serpData.organic_results || [];
+    console.log(`✓ SerpAPI found ${organicResults.length} results`);
+
+    if (organicResults.length === 0) {
+      throw new Error('No LinkedIn profiles found for this name');
+    }
+
+    // Step 2: Extract LinkedIn URLs
+    const linkedinUrls = organicResults
+      .map((result: any) => result.link)
+      .filter((link: string) => link && link.includes('linkedin.com/in/'));
+
+    console.log(`📋 Extracted ${linkedinUrls.length} LinkedIn URLs`);
+
+    // Step 3: Enrich profiles with selected provider
+    const leads = [];
+
+    for (let i = 0; i < linkedinUrls.length; i++) {
+      const linkedinUrl = linkedinUrls[i];
+      const serpResult = organicResults[i];
+      
+      try {
+        let profileData: any = null;
+
+        // Try enrichment based on selected provider
+        if (enrichmentProvider === 'rocketreach') {
+          profileData = await enrichWithRocketReach(linkedinUrl);
+        } else {
+          profileData = await enrichWithContactOut(linkedinUrl);
+        }
+
+        // Fallback: Parse from SerpAPI result
+        if (!profileData) {
+          console.log(`📝 Using fallback for: ${linkedinUrl}`);
+          
+          const title = serpResult.title || '';
+          let parsedName = fullName;
+          let parsedJobTitle = jobTitle || 'Unknown';
+          let parsedCompany = companyName || 'Unknown';
+
+          if (title) {
+            const titleParts = title.replace('| LinkedIn', '').split(' - ');
+            if (titleParts.length >= 2) {
+              parsedName = titleParts[0].trim();
+              const roleCompany = titleParts[1].trim();
+              
+              if (roleCompany.includes(' at ')) {
+                const [role, company] = roleCompany.split(' at ');
+                parsedJobTitle = role.trim();
+                parsedCompany = company.trim();
+              } else {
+                parsedJobTitle = roleCompany;
+              }
+            }
+          }
+
+          profileData = {
+            full_name: parsedName,
+            title: parsedJobTitle,
+            company: { name: parsedCompany },
+            location: location || null,
+            contact_info: {
+              emails: [],
+              work_emails: [],
+              personal_emails: [],
+              phones: []
+            }
+          };
+        }
+
+        // Insert lead into database
+        const lead = {
+          job_id: jobId,
+          user_id: userId,
+          full_name: profileData.full_name || 'Unknown',
+          job_title: profileData.title || profileData.current_title || 'Unknown',
+          company_name: profileData.company?.name || profileData.current_employer || 'Unknown',
+          location: profileData.location || location || null,
+          email: profileData.contact_info?.emails?.[0] || profileData.emails?.[0] || null,
+          phone: profileData.contact_info?.phones?.[0] || profileData.phones?.[0] || null,
+          linkedin_url: linkedinUrl
+        };
+
+        leads.push(lead);
+      } catch (error) {
+        console.error(`Error processing ${linkedinUrl}:`, error);
+      }
+    }
+
+    // Batch insert leads
+    if (leads.length > 0) {
+      const { error: insertError } = await supabase.from('leads').insert(leads);
+      if (insertError) throw insertError;
+    }
+
+    console.log(`✅ Successfully processed ${leads.length} leads`);
+
+    await supabase.from('jobs').update({ status: 'completed' }).eq('id', jobId);
+  } catch (error: any) {
+    console.error('Name search error:', error);
+    await supabase.from('jobs').update({
+      status: 'failed',
+      error_message: error.message
+    }).eq('id', jobId);
   }
 }
 
